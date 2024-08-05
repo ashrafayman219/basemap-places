@@ -18,10 +18,10 @@ function loadModule(moduleName) {
 async function initializeMapPlaces() {
   try {
     const [
+      esriConfig,
       Map,
       MapView,
       VectorTileLayer,
-      esriConfig,
       Basemap,
       BasemapStyle,
       promiseUtils,
@@ -29,12 +29,15 @@ async function initializeMapPlaces() {
       FetchPlaceParameters,
       PlacesQueryParameters,
       Expand,
+      FeatureLayer,
+      Graphic,
+      LayerList,
+      reactiveUtils
     ] = await Promise.all([
       loadModule("esri/config"),
       loadModule("esri/Map"),
       loadModule("esri/views/MapView"),
       loadModule("esri/layers/VectorTileLayer"),
-      loadModule("esri/config"),
       loadModule("esri/Basemap"),
       loadModule("esri/support/BasemapStyle"),
       loadModule("esri/core/promiseUtils"),
@@ -42,10 +45,15 @@ async function initializeMapPlaces() {
       loadModule("esri/rest/support/FetchPlaceParameters"),
       loadModule("esri/rest/support/PlacesQueryParameters"),
       loadModule("esri/widgets/Expand"),
+      loadModule("esri/layers/FeatureLayer"),
+      loadModule("esri/Graphic"),
+      loadModule("esri/widgets/LayerList"),
+      loadModule("esri/core/reactiveUtils"),
     ]);
 
     const apiKey =
-      "AAPT3NKHt6i2urmWtqOuugvr9XOQeEtGf5ANzi2t1xeXjN5JJJf5KzC4qSoqSi-1d9R1xsRnB9PvL4mbUIUKyEwVBYbg3-_etz3lccyJdxmA1APly1d4H2qivhk6UP4TmSpn67ObWCPG6ftb2nL1JFoCnPxH0RlTzgIbFDmK3NS6ELOk-RYDSw40HR6d8bF5aeJ4S3ouHr-Bo-dHsAC282ToRDYJuYfua98vd1Fn8Y41-4Y.";
+      "AAPK756f006de03e44d28710cb446c8dedb4rkQyhmzX6upFiYPzQT0HNQNMJ5qPyO1TnPDSPXT4EAM_DlQSj20ShRD7vyKa7a1H";
+    // "AAPT3NKHt6i2urmWtqOuugvr9fHQ610Hqjyi5sds6bqAsnn9I-YR8MGrGmBIRaTBa0YRIe6Q4TbO0Sxpbe0Hdpoq-cXhYuFZXwcne0v5zx12HSRAOwhgvge7TMi_ZeLwy0_essF_3BYl9EcFg2u2VbHWLwg74lLnugEmYKQwsaLZ1Qnz98LrXNRwnhTCVdiGf-Hv8o5u4UDOxmVy-CcWWDQuo3eP_MsyG1cM7zkbSmitszo.";
     esriConfig.apiKey = apiKey;
 
     // Display places with the basemap style.
@@ -56,9 +64,42 @@ async function initializeMapPlaces() {
       }),
     });
 
+    const renderer = {
+      type: "heatmap",
+      colorStops: [
+        { color: [133, 193, 200, 0], ratio: 0 },
+        { color: [133, 193, 200, 0], ratio: 0.01 },
+        { color: [133, 193, 200, 255], ratio: 0.01 },
+        { color: [133, 193, 200, 255], ratio: 0.01 },
+        { color: [144, 161, 190, 255], ratio: 0.0925 },
+        { color: [156, 129, 132, 255], ratio: 0.175 },
+        { color: [167, 97, 170, 255], ratio: 0.2575 },
+        { color: [175, 73, 128, 255], ratio: 0.34 },
+        { color: [184, 48, 85, 255], ratio: 0.4225 },
+        { color: [192, 24, 42, 255], ratio: 0.505 },
+        { color: [200, 0, 0, 255], ratio: 0.5875 },
+        { color: [211, 51, 0, 255], ratio: 0.67 },
+        { color: [222, 102, 0, 255], ratio: 0.7525},
+        { color: [233, 153, 0, 255], ratio: 0.835},
+        { color: [244, 204, 0, 255], ratio: 0.9175},
+        { color: [255, 255, 0, 255], ratio: 1 }
+      ],
+      maxDensity: 0.01,
+      minDensity: 0
+    };
+
+    // Create featurelayer from feature service
+    const checkinLayer = new FeatureLayer({
+      // URL to the service
+      url: "https://services3.arcgis.com/AtFD5NjBs72VpMjN/arcgis/rest/services/checkin/FeatureServer/0",
+      renderer: renderer,
+    });
+
     displayMap = new Map({
       basemap: basemap,
+      layers: [checkinLayer]
     });
+
 
     view = new MapView({
       container: "viewDiv",
@@ -79,11 +120,16 @@ async function initializeMapPlaces() {
 
     await view.when();
 
+    // let alert = document.getElementById('alertConfirmation');
+    // view.ui.add(alert);
+    // alert.style.display = "none";
+
     // get the places layer from the basemap
     const layer = displayMap.allLayers.getItemAt(0);
 
     let vtlTooltip = createTooltip();
     let pointerMoveHandle = pointerMoveHandler();
+    let pointerMoveHandle01 = pointerMoveHandler01();
 
     // Call hitTest from pointer-move to get place features from the places vector tile layer
     function pointerMoveHandler() {
@@ -102,6 +148,115 @@ async function initializeMapPlaces() {
       });
     }
 
+    let alert = document.createElement("calcite-alert");
+
+    function creatingAlertConfirmation(placeName) {
+      alert.remove();
+      alert = document.createElement("calcite-alert");
+      alert.kind = "info";
+      alert.open = true;
+      alert.icon = "register";
+      alert.setAttribute("auto-close", "true");
+      let divTitle = document.createElement("div");
+      let divMessage = document.createElement("div");
+      divTitle.slot = "title";
+      divTitle.innerHTML = `You have checked in in the ${placeName}`;
+      divMessage.slot = "message";
+      divMessage.innerHTML = `Your check-in is successfully saved ${placeName}`;
+      alert.append(divTitle);
+      alert.append(divMessage);
+      view.ui.add(alert);
+    }
+
+
+    // Call hitTest from pointer-click to get place features from the places vector tile layer
+    function pointerMoveHandler01() {
+      return view.on("click", async (event) => {
+        let hits;
+
+        try {
+          hits = await hitTest(event);
+          let placeName;
+          if (hits) {
+            console.log(hits, "hitsss");
+            
+            let attributes = {};
+            attributes["Name"] = hits[0].attributes["_name"];
+            let geo = hits[0].geometry;
+            const addFeature =  new Graphic({
+              geometry: geo,
+              attributes: attributes
+            });
+            console.log("ppp");
+            
+            checkinLayer.applyEdits({
+              addFeatures: [addFeature]
+            })
+
+
+            placeName = hits[0].attributes["_name"];
+            // vtlTooltip.show(hits.screenPoint, displayContent);
+            creatingAlertConfirmation(placeName);
+            view.goTo(
+              {
+                target: hits[0],
+                zoom: 20,
+              },
+              {
+                duration: 2000,
+              }
+            );
+            // alert.style.display = "block";
+          } else {
+            // vtlTooltip.hide();
+            alert.remove();
+            view.goTo(
+              {
+                target: view.center,
+                zoom: 15,
+              },
+              {
+                duration: 2000,
+              }
+            );
+          }
+        } catch {}
+      });
+    }
+
+    view.when().then(() => {
+      // When the view is ready, clone the heatmap renderer
+      // from the only layer in the web map
+
+      // for (let i = 0; i < view.map.layers.length; i++) {
+        const heatmapRenderer = checkinLayer.renderer.clone();
+
+        // The following simple renderer will render all points as simple
+        // markers at certain scales
+        const simpleRenderer = {
+          type: "simple",
+          symbol: {
+            type: "picture-marker",  // autocasts as new PictureMarkerSymbol()
+            url: "https://daraobeirne.github.io/kisspng-drawing-pin-world-map-logo-push-vector-5ae029f6ddeaf4.198342921524640246909.png",
+            width: "30px",
+            height: "30px"
+          }
+        };
+
+        // When the scale is larger than 1:72,224 (zoomed in passed that scale),
+        // then switch from a heatmap renderer to a simple renderer. When zoomed
+        // out beyond that scale, switch back to the heatmap renderer
+        reactiveUtils.watch(
+          () => view.scale,
+          (scale) => {
+            checkinLayer.renderer = scale <= 2224 ? simpleRenderer : heatmapRenderer;
+          }
+        );
+      // }
+
+    });
+
+
     let searchedPlaceId, displayContent;
     const tooltipDiv = document.getElementById("vtlTooltip");
     tooltipDiv.addEventListener("click", () => {
@@ -118,66 +273,67 @@ async function initializeMapPlaces() {
       }
     });
 
-    // open the place of interest's website when user clicks on POI
-    view.on("click", async (event) => {
-      hits = await hitTest(event);
-      if (hits && hits[0].attributes["esri_place_id"] !== searchedPlaceId) {
-        // remove the pointer move event handler
-        pointerMoveHandle.remove();
-        tooltipDiv.style["pointer-events"] = "auto";
-        // user clicked on a feature once, get additional info about the place using the placeId
-        const placeResult = await getPlace(
-          hoverGraphic.attributes["esri_place_id"]
-        );
+    // // open the place of interest's website when user clicks on POI
+    // view.on("click", async (event) => {
+    //   hits = await hitTest(event);
+    //   console.log(hits, "hits");
+    //   if (hits && hits[0].attributes["esri_place_id"] !== searchedPlaceId) {
+    //     // remove the pointer move event handler
+    //     pointerMoveHandle.remove();
+    //     tooltipDiv.style["pointer-events"] = "auto";
+    //     // user clicked on a feature once, get additional info about the place using the placeId
+    //     const placeResult = await getPlace(
+    //       hoverGraphic.attributes["esri_place_id"]
+    //     );
 
-        // searchedPlaceId is used to check if user is clicking on same feature
-        searchedPlaceId = placeResult.placeId;
+    //     // searchedPlaceId is used to check if user is clicking on same feature
+    //     searchedPlaceId = placeResult.placeId;
 
-        // create a content to display containing the place info
-        const address = [
-          placeResult?.address?.streetAddress,
-          placeResult?.address?.locality,
-          placeResult?.address?.postcode,
-        ]
-          .filter(Boolean)
-          .join(", ");
+    //     // create a content to display containing the place info
+    //     const address = [
+    //       placeResult?.address?.streetAddress,
+    //       placeResult?.address?.locality,
+    //       placeResult?.address?.postcode,
+    //     ]
+    //       .filter(Boolean)
+    //       .join(", ");
 
-        const phone = [placeResult?.contactInfo?.telephone]
-          .filter(Boolean)
-          .join(", ");
-        const link = [placeResult?.contactInfo?.website]
-          .filter(Boolean)
-          .join(", ");
-        displayContent = "Name: " + hoverGraphic.attributes["_name"];
+    //     const phone = [placeResult?.contactInfo?.telephone]
+    //       .filter(Boolean)
+    //       .join(", ");
+    //     const link = [placeResult?.contactInfo?.website]
+    //       .filter(Boolean)
+    //       .join(", ");
+    //     displayContent = "Name: " + hoverGraphic.attributes["_name"];
 
-        for (const [index, string] of [address, phone, link].entries()) {
-          if (string !== null && string.length > 0) {
-            if (index == 0) {
-              displayContent += "<br> Address: " + string;
-            } else if (index == 1) {
-              displayContent += "<br> Phone: " + string;
-            } else {
-              displayContent +=
-                "<br> Website: <a target='_blank' href='" +
-                string +
-                "'>" +
-                string +
-                "</a>";
-            }
-          }
-        }
-        vtlTooltip.show({ x: event.x, y: event.y }, displayContent);
-      } else if (
-        hits &&
-        hits[0]?.attributes["esri_place_id"] == searchedPlaceId
-      ) {
-        pointerMoveHandle.remove();
-        tooltipDiv.style["pointer-events"] = "auto";
-        vtlTooltip.show({ x: event.x, y: event.y }, displayContent);
-      } else {
-        vtlTooltip.hide();
-      }
-    });
+    //     for (const [index, string] of [address, phone, link].entries()) {
+    //       if (string !== null && string.length > 0) {
+    //         if (index == 0) {
+    //           displayContent += "<br> Address: " + string;
+    //         } else if (index == 1) {
+    //           displayContent += "<br> Phone: " + string;
+    //         } else {
+    //           displayContent +=
+    //             "<br> Website: <a target='_blank' href='" +
+    //             string +
+    //             "'>" +
+    //             string +
+    //             "</a>";
+    //         }
+    //       }
+    //     }
+    //     vtlTooltip.show({ x: event.x, y: event.y }, displayContent);
+    //   } else if (
+    //     hits &&
+    //     hits[0]?.attributes["esri_place_id"] == searchedPlaceId
+    //   ) {
+    //     pointerMoveHandle.remove();
+    //     tooltipDiv.style["pointer-events"] = "auto";
+    //     vtlTooltip.show({ x: event.x, y: event.y }, displayContent);
+    //   } else {
+    //     vtlTooltip.hide();
+    //   }
+    // });
 
     let hoverGraphic;
     // debounce the hittest as user moves the mouse over the map to improve performance
@@ -191,10 +347,12 @@ async function initializeMapPlaces() {
           hit?.results
             ?.filter((result) => {
               if (result.graphic.attributes["esri_place_id"]) {
+                // console.log(result, "result");
                 return result.graphic;
               }
             })
             .map(async (filterResult) => {
+              // console.log(filterResult, "filterResult");
               if (filterResult) {
                 if (
                   hoverGraphic?.attributes["esri_place_id"] ===
@@ -219,11 +377,14 @@ async function initializeMapPlaces() {
       }
     });
 
+    let a =
+      "AAPTxy8BH1VEsoebNVZXo8HurNaPVpzNwxNjXziN3ZXyYKBltEO3h8eMkPkBmDhn7fxOky96vDmpSnQG6eWRqGzn1R4EcMDeNtBNQGY7dyA7_1dsObaY3WFjUjDGOhwqfM0DbIH4p6OZ1t_BeEovXpEXcqKLhZYPQFpttQPoyMx7vzsxLp-ZPQ2idkCjIjZGqfwOOieyJ7chTdlcntGgakspTk7B0w6LCI3a8rtrf78icSQ.AT1_DpnC2Lf9";
+
     // This function is called from as user moves the mouse over the places features
     // Fetches additional info about the place from the places API to be displayed in a tooltip
     async function getPlace(placeId) {
       const fetchPlaceParameters = new FetchPlaceParameters({
-        apiKey,
+        // a,
         placeId,
         requestedFields: ["all"],
       });
@@ -309,6 +470,10 @@ async function initializeMapPlaces() {
     setTimeout(() => {
       instructionsExpand.expanded = false;
     }, 5000);
+
+
+
+
     //add widgets
     await addWidgets()
       .then(([view, displayMap]) => {
@@ -400,42 +565,31 @@ async function addWidgets() {
     });
     view.ui.add(homeWidget, "top-left");
 
-    // var layerList = new LayerList({
-    //   view: view,
-    //   listItemCreatedFunction: function (event) {
-    //     var item = event.item;
-    //     if (item.layer.type === "group") {
-    //       item.open = true;
-    //     }
-    //     // item.watch("visible", (event) => {
-    //     //   layerList.operationalItems.forEach((layerView) => {
-    //     //     if (layerView.layer.id != item.layer.id) {
-    //     //       layerView.visible = false;
-    //     //     }
-    //     //   });
-    //     // });
-    //     // displays the legend for each layer list item
-    //     item.panel = {
-    //       content: "legend",
-    //     };
-    //   },
-    //   showLegend: true,
-    // });
+    var layerList = new LayerList({
+      view: view,
+      listItemCreatedFunction: function (event) {
+        var item = event.item;
+        // displays the legend for each layer list item
+        item.panel = {
+          content: "legend",
+        };
+      },
+      showLegend: true,
+    });
 
-    // layerList.visibilityAppearance = "checkbox";
-    // var Expand5 = new Expand({
-    //   view: view,
-    //   content: layerList,
-    //   expandIcon: "layers",
-    //   group: "top-right",
-    //   // expanded: false,
-    //   expandTooltip: "Layer List",
-    //   collapseTooltip: "Close",
-    // });
-    // layerList.selectionMode = "single";
-    // Expand5.expanded = true;
-    // // view.ui.add([Expand5], { position: "top-left", index: 6 });
-    // // view.ui.add("controlsWidget", "top-right");
+    layerList.visibilityAppearance = "checkbox";
+    var Expand5 = new Expand({
+      view: view,
+      content: layerList,
+      expandIcon: "layers",
+      group: "top-right",
+      // expanded: false,
+      expandTooltip: "Layer List",
+      collapseTooltip: "Close",
+    });
+    Expand5.expanded = true;
+    view.ui.add([Expand5], { position: "top-left", index: 6 });
+
 
     await view.when();
 

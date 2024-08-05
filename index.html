@@ -13,7 +13,8 @@ https://developers.arcgis.com/documentation/security-and-authentication/get-star
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
     <title>Basemap places | Sample | ArcGIS Maps SDK for JavaScript 4.30</title>
-    <style>
+
+    <!-- <style>
       html,
       body,
       #viewDiv {
@@ -38,16 +39,35 @@ https://developers.arcgis.com/documentation/security-and-authentication/get-star
         transform: translate3d(-50%, -125%, 0);
       }
       
-    </style>
-
+    </style> -->
+    
+    
+    <script type="module" src="https://js.arcgis.com/calcite-components/2.11.0/calcite.esm.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://js.arcgis.com/calcite-components/2.11.0/calcite.css" />
     <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css" />
+    <link rel="stylesheet" href="style.css">
     <script src="https://js.arcgis.com/4.30/"></script>
 
 
   </head>
   <body>
+
+    
     <div id="viewDiv"></div>
 
+      <!-- <calcite-alert id="alertConfirmation" kind="success" open icon="register" label="2010 County Census Report saved" auto-close>
+          <div slot="title">Check-in saved</div>
+          <div slot="message">
+              You will see your <b>check-in</b> in the next map.
+          </div>
+      </calcite-alert> -->
+
+
+
+
+    <script src="script.js"></script>
+
+<!-- 
     <script>
 
       var displayMap;
@@ -498,6 +518,11 @@ https://developers.arcgis.com/documentation/security-and-authentication/get-star
       }
       
           
-          </script>
+          </script> -->
+
+
+
+
+  
   </body>
 </html>
