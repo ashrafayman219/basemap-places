@@ -32,7 +32,9 @@ async function initializeMapPlaces() {
       FeatureLayer,
       Graphic,
       LayerList,
-      reactiveUtils
+      reactiveUtils,
+      geometryEngine,
+      GraphicsLayer,
     ] = await Promise.all([
       loadModule("esri/config"),
       loadModule("esri/Map"),
@@ -49,6 +51,8 @@ async function initializeMapPlaces() {
       loadModule("esri/Graphic"),
       loadModule("esri/widgets/LayerList"),
       loadModule("esri/core/reactiveUtils"),
+      loadModule("esri/geometry/geometryEngine"),
+      loadModule("esri/layers/GraphicsLayer"),
     ]);
 
     const apiKey =
@@ -79,13 +83,13 @@ async function initializeMapPlaces() {
         { color: [192, 24, 42, 255], ratio: 0.505 },
         { color: [200, 0, 0, 255], ratio: 0.5875 },
         { color: [211, 51, 0, 255], ratio: 0.67 },
-        { color: [222, 102, 0, 255], ratio: 0.7525},
-        { color: [233, 153, 0, 255], ratio: 0.835},
-        { color: [244, 204, 0, 255], ratio: 0.9175},
-        { color: [255, 255, 0, 255], ratio: 1 }
+        { color: [222, 102, 0, 255], ratio: 0.7525 },
+        { color: [233, 153, 0, 255], ratio: 0.835 },
+        { color: [244, 204, 0, 255], ratio: 0.9175 },
+        { color: [255, 255, 0, 255], ratio: 1 },
       ],
       maxDensity: 0.01,
-      minDensity: 0
+      minDensity: 0,
     };
 
     // Create featurelayer from feature service
@@ -95,11 +99,15 @@ async function initializeMapPlaces() {
       renderer: renderer,
     });
 
+    const graphicsLayer = new GraphicsLayer();
+    graphicsLayer.title = "No. Check-in"
+    graphicsLayer.visible = false;
+
+
     displayMap = new Map({
       basemap: basemap,
-      layers: [checkinLayer]
+      layers: [checkinLayer],
     });
-
 
     view = new MapView({
       container: "viewDiv",
@@ -139,6 +147,7 @@ async function initializeMapPlaces() {
           hits = await hitTest(event);
           let displayContent;
           if (hits) {
+            // document.body.style.cursor = "pointer";
             displayContent = `Name: ${hits[0].attributes["_name"]}`;
             vtlTooltip.show(hits.screenPoint, displayContent);
           } else {
@@ -168,35 +177,244 @@ async function initializeMapPlaces() {
       view.ui.add(alert);
     }
 
+    const panel = document.getElementById("panelDetails");
+    panel.addEventListener("calcitePanelClose", () => {
+      document.getElementById("panelDetails").style.display = "none";
+      document.getElementById("inputContainer").style.display = "none";
+    });
+
+    //               // returns all the graphics from the layer view
+    // view.whenLayerView(checkinLayer).then(function(layerView){
+    //   reactiveUtils.when(
+    //     () => !layerView.updating,
+    //     (val) => {
+    //       layerView.queryFeatures().then(function(results){
+    //         console.log(results);  // prints all the client-side features to the console
+    //       });
+    //     }
+    //   );
+    // });
+
+    // // Query to get features
+    // var query = checkinLayer.createQuery();
+    // query.returnGeometry = true;
+
+    // checkinLayer.queryFeatures(query).then(function (results) {
+    //   var features = results.features;
+    //   console.log(results);
+    //   var overlapCount = 0;
+
+    //   for (var i = 0; i < features.length; i++) {
+    //     for (var j = i + 1; j < features.length; j++) {
+    //       if (
+    //         geometryEngine.intersects(
+    //           features[i].geometry,
+    //           features[j].geometry
+    //         )
+    //       ) {
+    //         overlapCount++;
+    //       }
+    //     }
+    //   }
+
+    //   console.log("Number of overlapping features:", overlapCount);
+    // });
+
+
+    async function enhancedFeatureGroupingAndLabeling() {
+      try {
+        // Run your existing feature query
+        var query = checkinLayer.createQuery();
+        query.returnGeometry = true;
+        const results = await checkinLayer.queryFeatures(query);
+        const features = results.features;
+        const parent = {};
+        const rank = {};
+        const idToIndex = {};
+    
+        // Initialize union-find structures
+        features.forEach((feature, index) => {
+          const id = feature.attributes.OBJECTID; // Assuming OBJECTID or some unique field
+          parent[id] = id;
+          rank[id] = 0;
+          idToIndex[id] = index;
+        });
+    
+        // Union-Find functions
+        function find(id) {
+          if (parent[id] !== id) {
+            parent[id] = find(parent[id]);
+          }
+          return parent[id];
+        }
+    
+        function union(id1, id2) {
+          const root1 = find(id1);
+          const root2 = find(id2);
+          if (root1 !== root2) {
+            if (rank[root1] > rank[root2]) {
+              parent[root2] = root1;
+            } else if (rank[root1] < rank[root2]) {
+              parent[root1] = root2;
+            } else {
+              parent[root2] = root1;
+              rank[root1]++;
+            }
+          }
+        }
+    
+        // Comparing each feature with each other to union intersecting ones
+        for (let i = 0; i < features.length; i++) {
+          for (let j = i + 1; j < features.length; j++) {
+            if (geometryEngine.intersects(features[i].geometry, features[j].geometry)) {
+              union(features[i].attributes.OBJECTID, features[j].attributes.OBJECTID);
+            }
+          }
+        }
+    
+        // Group all features by their root parent
+        const groups = {};
+        for (const id in parent) {
+          const rootId = find(id);
+          if (!groups[rootId]) {
+            groups[rootId] = [];
+          }
+          groups[rootId].push(features[idToIndex[id]]);
+        }
+    
+        // Count features in each group
+        const groupCounts = Object.keys(groups).map(groupId => ({
+          groupId,
+          count: groups[groupId].length,
+          features: groups[groupId],
+        }));
+    
+        console.log("Group counts:", groupCounts);
+        
+        // Add labels to map
+        addLabelsToMap(groupCounts);
+    
+        return groupCounts;
+      } catch (error) {
+        console.error("Error grouping features:", error);
+      }
+    }
+    
+    function addLabelsToMap(groupCounts) {
+      groupCounts.forEach(group => {
+        const point = group.features[0].geometry; // We can use any point in the group for labeling
+        console.log("Point for group " + group.groupId, point); // Debugging to check point values
+    
+        const textSymbol = {
+          type: "text",
+          color: "RebeccaPurple",
+          haloColor: "white",
+          haloSize: "1px",
+          xoffset: -20,
+          yoffset: 15,
+          text: `+${group.count}`, // Adding "+" sign before count
+          font: {
+            size: 14,
+            family: "sans-serif",
+            weight: "bold"
+          }
+        };
+    
+        const graphic = new Graphic({
+          geometry: point,
+          symbol: textSymbol
+        });
+    
+        graphicsLayer.add(graphic);
+      });
+    
+      // Add the graphics layer to the map
+      displayMap.add(graphicsLayer);
+      console.log("GraphicsLayer added to the map.");
+    }
+    
+
+    const groupCounts = await enhancedFeatureGroupingAndLabeling();
+    console.log(groupCounts, "groupCount");
+    
+
 
     // Call hitTest from pointer-click to get place features from the places vector tile layer
     function pointerMoveHandler01() {
+      let lastHit = null;
+      document
+        .getElementById("checkinbtn")
+        .removeEventListener("click", handleCheckIn); // Ensure no duplicate listeners
+
+      function handleCheckIn() {
+        if (lastHit) {
+          let attributes = {};
+          attributes["Name"] = lastHit.attributes["_name"];
+          let geo = lastHit.geometry;
+          const addFeature = new Graphic({
+            geometry: geo,
+            attributes: attributes,
+          });
+          console.log("ppp");
+
+          checkinLayer.applyEdits({
+            addFeatures: [addFeature],
+          });
+
+          let placeName = lastHit.attributes["_name"];
+          document.getElementById("panelDetails").style.display = "none";
+          document.getElementById("inputContainer").style.display = "none";
+          creatingAlertConfirmation(placeName);
+          view.goTo(
+            {
+              target: lastHit,
+              zoom: 20,
+            },
+            {
+              duration: 2000,
+            }
+          );
+        }
+      }
+
       return view.on("click", async (event) => {
         let hits;
 
         try {
           hits = await hitTest(event);
-          let placeName;
-          if (hits) {
+          if (hits && hits.length > 0) {
+            let placeNameLabel = document.getElementById("panelDetails");
+            let categoryLabel = document.getElementById("categoryLabel");
+
             console.log(hits, "hitsss");
+
+            // Loop through the groups to find which one contains the clicked point
+            let foundGroup = null;
             
-            let attributes = {};
-            attributes["Name"] = hits[0].attributes["_name"];
-            let geo = hits[0].geometry;
-            const addFeature =  new Graphic({
-              geometry: geo,
-              attributes: attributes
+            groupCounts.forEach(group => {
+              group.features.forEach(feature => {
+                if (geometryEngine.contains(feature.geometry, hits[0].geometry)) {
+                  foundGroup = group;
+                }
+              });
             });
-            console.log("ppp");
-            
-            checkinLayer.applyEdits({
-              addFeatures: [addFeature]
-            })
+
+            if (foundGroup) {
+              console.log("Group ID: " + foundGroup.groupId + ", Count: " + foundGroup.count);
+              document.getElementById('chip').innerHTML = foundGroup.count;
+            } else {
+              console.log("No group found for the clicked location.");
+            }
 
 
-            placeName = hits[0].attributes["_name"];
-            // vtlTooltip.show(hits.screenPoint, displayContent);
-            creatingAlertConfirmation(placeName);
+            document
+              .getElementById("panelDetails")
+              .setAttribute("closed", false);
+            document.getElementById("panelDetails").style.display = "block";
+            document.getElementById("inputContainer").style.display = "block";
+            placeNameLabel.heading = `${hits[0].attributes["_name"]}`;
+            categoryLabel.description = `${hits[0].attributes["category_labels"]}`;
+
             view.goTo(
               {
                 target: hits[0],
@@ -206,9 +424,24 @@ async function initializeMapPlaces() {
                 duration: 2000,
               }
             );
-            // alert.style.display = "block";
+
+            // Store the last hit to be used when the button is clicked
+            lastHit = hits[0];
+
+            // Re-attach the event listener
+            document
+              .getElementById("checkinbtn")
+              .removeEventListener("click", handleCheckIn);
+            document
+              .getElementById("checkinbtn")
+              .addEventListener("click", handleCheckIn);
           } else {
-            // vtlTooltip.hide();
+            panel.style.display = "none";
+            document.getElementById("inputContainer").style.display = "none";
+            let placeNameLabel = document.getElementById("panelDetails");
+            let categoryLabel = document.getElementById("categoryLabel");
+            placeNameLabel.heading = "";
+            categoryLabel.innerHTML = "";
             alert.remove();
             view.goTo(
               {
@@ -220,7 +453,9 @@ async function initializeMapPlaces() {
               }
             );
           }
-        } catch {}
+        } catch (error) {
+          console.error("Error during hitTest or handling click event:", error);
+        }
       });
     }
 
@@ -229,33 +464,39 @@ async function initializeMapPlaces() {
       // from the only layer in the web map
 
       // for (let i = 0; i < view.map.layers.length; i++) {
-        const heatmapRenderer = checkinLayer.renderer.clone();
+      const heatmapRenderer = checkinLayer.renderer.clone();
 
-        // The following simple renderer will render all points as simple
-        // markers at certain scales
-        const simpleRenderer = {
-          type: "simple",
-          symbol: {
-            type: "picture-marker",  // autocasts as new PictureMarkerSymbol()
-            url: "https://daraobeirne.github.io/kisspng-drawing-pin-world-map-logo-push-vector-5ae029f6ddeaf4.198342921524640246909.png",
-            width: "30px",
-            height: "30px"
-          }
-        };
+      // The following simple renderer will render all points as simple
+      // markers at certain scales
+      const simpleRenderer = {
+        type: "simple",
+        symbol: {
+          type: "picture-marker", // autocasts as new PictureMarkerSymbol()
+          url: "https://daraobeirne.github.io/kisspng-drawing-pin-world-map-logo-push-vector-5ae029f6ddeaf4.198342921524640246909.png",
+          width: "30px",
+          height: "30px",
+        },
+      };
 
-        // When the scale is larger than 1:72,224 (zoomed in passed that scale),
-        // then switch from a heatmap renderer to a simple renderer. When zoomed
-        // out beyond that scale, switch back to the heatmap renderer
-        reactiveUtils.watch(
-          () => view.scale,
-          (scale) => {
-            checkinLayer.renderer = scale <= 2224 ? simpleRenderer : heatmapRenderer;
-          }
-        );
+      // When the scale is larger than 1:72,224 (zoomed in passed that scale),
+      // then switch from a heatmap renderer to a simple renderer. When zoomed
+      // out beyond that scale, switch back to the heatmap renderer
+      reactiveUtils.watch(
+        () => view.scale,
+        (scale) => {
+          checkinLayer.renderer =
+            scale <= 2224 ? simpleRenderer : heatmapRenderer;
+            if (scale <= 2224) {
+              checkinLayer.renderer = simpleRenderer;
+              graphicsLayer.visible = true;
+            } else {
+              checkinLayer.renderer = heatmapRenderer;
+              graphicsLayer.visible = false;
+            }
+        }
+      );
       // }
-
     });
-
 
     let searchedPlaceId, displayContent;
     const tooltipDiv = document.getElementById("vtlTooltip");
@@ -445,34 +686,31 @@ async function initializeMapPlaces() {
       };
     }
 
-    // Displays instructions to the user for understanding the sample
-    // And places them in an Expand widget instance
-    const sampleInstructions = document.createElement("div");
-    sampleInstructions.style.padding = "10px";
-    sampleInstructions.style.backgroundColor = "white";
-    sampleInstructions.style.width = "300px";
-    sampleInstructions.innerHTML = [
-      "<b>Move</b> the pointer over the points of interest",
-      "to see the place name.",
-      "<b>Click</b> the POI to access its address, phone # and website.",
-      "<b>Click</b> the provided link to visit the website of the place.",
-      "<b>Press Escape</b> to resume exploring other places.",
-    ].join(" ");
+    // // Displays instructions to the user for understanding the sample
+    // // And places them in an Expand widget instance
+    // const sampleInstructions = document.createElement("div");
+    // sampleInstructions.style.padding = "10px";
+    // sampleInstructions.style.backgroundColor = "white";
+    // sampleInstructions.style.width = "300px";
+    // sampleInstructions.innerHTML = [
+    //   "<b>Move</b> the pointer over the points of interest",
+    //   "to see the place name.",
+    //   "<b>Click</b> the POI to access its address, phone # and website.",
+    //   "<b>Click</b> the provided link to visit the website of the place.",
+    //   "<b>Press Escape</b> to resume exploring other places.",
+    // ].join(" ");
 
-    const instructionsExpand = new Expand({
-      expandIcon: "question",
-      expandTooltip: "How to use this sample",
-      expanded: true,
-      view: view,
-      content: sampleInstructions,
-    });
-    view.ui.add(instructionsExpand, "top-left");
-    setTimeout(() => {
-      instructionsExpand.expanded = false;
-    }, 5000);
-
-
-
+    // const instructionsExpand = new Expand({
+    //   expandIcon: "question",
+    //   expandTooltip: "How to use this sample",
+    //   expanded: true,
+    //   view: view,
+    //   content: sampleInstructions,
+    // });
+    // view.ui.add(instructionsExpand, "top-left");
+    // setTimeout(() => {
+    //   instructionsExpand.expanded = false;
+    // }, 5000);
 
     //add widgets
     await addWidgets()
@@ -541,7 +779,7 @@ async function addWidgets() {
       nextBasemap: "hybrid", // allows for toggling to the 'hybrid' basemap
     });
     // Add widget to the top right corner of the view
-    view.ui.add(toggle, "top-right");
+    view.ui.add(toggle, "bottom-left");
 
     // var fullscreen = new Fullscreen({
     //   view: view,
@@ -587,9 +825,8 @@ async function addWidgets() {
       expandTooltip: "Layer List",
       collapseTooltip: "Close",
     });
-    Expand5.expanded = true;
+    // Expand5.expanded = true;
     view.ui.add([Expand5], { position: "top-left", index: 6 });
-
 
     await view.when();
 
